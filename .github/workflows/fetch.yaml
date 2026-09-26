@@ -31,7 +31,7 @@ jobs:
       - name: Run Fetch RSS & Generate Ranking
         run: |
           node scripts/fetch_rss.js
-          # node scripts/generate_ranking.js
+#          node scripts/generate_ranking.js
 
       - name: Commit and Push changes
         run: |
