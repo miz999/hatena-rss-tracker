@@ -31,21 +31,17 @@ jobs:
       - name: Run Fetch RSS & Generate Ranking
         run: |
           node scripts/fetch_rss.js
-#          node scripts/generate_ranking.js
+          # node scripts/generate_ranking.js
 
       - name: Commit and Push changes
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          
-          # データベース(data/) と 生成Webページ(public/) をステージング
-          # git add data/ public/
-          git add data/  # <-- public/ を外し、data/ のみにする
-          
-          # 変更がある場合のみコミット＆push
+          git add data/
           if ! git diff --staged --quiet; then
             git commit -m "auto: update RSS SQLite database and ranking HTML"
             git push
           else
             echo "No changes to commit."
           fi
+          
