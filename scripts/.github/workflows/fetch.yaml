@@ -1,0 +1,50 @@
+name: Fetch Hatena RSS & Update Pages
+
+on:
+  schedule:
+    # 20分おきに自動実行 (UTC時間)
+    - cron: '*/20 * * * *'
+  workflow_dispatch: # 手動実行ボタンを有効化
+
+# ワークフローからの push および GitHub Pages への書き込み権限を付与
+permissions:
+  contents: write
+
+jobs:
+  fetch-and-generate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm' # package.json を使う場合はキャッシュで高速化
+
+      - name: Install dependencies
+        run: |
+          if [ -f package.json ]; then npm ci; fi
+
+      - name: Run Fetch RSS & Generate Ranking
+        run: |
+          node scripts/fetch_rss.js
+          node scripts/generate_ranking.js
+
+      - name: Commit and Push changes
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          
+          # データベース(data/) と 生成Webページ(public/) をステージング
+          git add data/ public/
+          
+          # 変更がある場合のみコミット＆push
+          if ! git diff --staged --quiet; then
+            git commit -m "auto: update RSS SQLite database and ranking HTML"
+            git push
+          else
+            echo "No changes to commit."
+          fi
