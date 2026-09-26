@@ -39,7 +39,8 @@ jobs:
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           
           # データベース(data/) と 生成Webページ(public/) をステージング
-          git add data/ public/
+          # git add data/ public/
+          git add data/  # <-- public/ を外し、data/ のみにする
           
           # 変更がある場合のみコミット＆push
           if ! git diff --staged --quiet; then
