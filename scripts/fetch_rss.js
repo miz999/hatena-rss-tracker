@@ -3,7 +3,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import RssParser from 'rss-parser';
 
-const parser = new RssParser();
+// customFields を指定して hatena 固有タグと dc:date をパースできるようにする
+const parser = new RssParser({
+  customFields: {
+    item: [
+      ['hatena:bookmarkcount', 'bookmarkcount'],
+      ['dc:date', 'dcDate']
+    ]
+  }
+});
 
 // 1. 日付から保存先ファイル名を動的に決定
 const now = new Date();
@@ -15,12 +23,11 @@ const dataDir = path.resolve('data');
 const hotentryDbPath = path.join(dataDir, `hotentry_${year}.db`);
 const allentryDbPath = path.join(dataDir, `allentry_${year}${month}.db`);
 
-// data ディレクトリが存在しない場合は自動作成
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
 
-// 2. DB 初期化（ファイル・テーブルがなければ自動生成）
+// 2. DB 初期化
 function initHotentryDb(dbPath) {
   const db = new DatabaseSync(dbPath);
   db.exec(`
@@ -38,19 +45,21 @@ function initHotentryDb(dbPath) {
 
 function initAllentryDb(dbPath) {
   const db = new DatabaseSync(dbPath);
+  // スナップショットとして時系列保存するため PRIMARY KEY を (link, fetched_at) に変更
   db.exec(`
     CREATE TABLE IF NOT EXISTS all_entries (
-      link TEXT PRIMARY KEY,
+      link TEXT NOT NULL,
       title TEXT NOT NULL,
       bookmark_count INTEGER NOT NULL,
       pub_date TEXT,
-      fetched_at TEXT NOT NULL
+      fetched_at TEXT NOT NULL,
+      PRIMARY KEY (link, fetched_at)
     );
   `);
   return db;
 }
 
-// 3. はてブ特有のブックマーク数を抽出するヘルパー（例: <hatena:bookmarkcount>）
+// 3. ブックマーク数・更新日時の抽出ヘルパー
 function extractBookmarkCount(item) {
   if (item.bookmarkcount !== undefined) {
     return parseInt(item.bookmarkcount, 10);
@@ -58,7 +67,7 @@ function extractBookmarkCount(item) {
   return 0;
 }
 
-// 4. Hotentry 保存処理 & サマリ取得
+// 4. Hotentry 保存処理
 async function processHotentry(db) {
   const feedUrl = 'https://b.hatena.ne.jp/hotentry.rss';
   const feed = await parser.parseURL(feedUrl);
@@ -77,9 +86,13 @@ async function processHotentry(db) {
     const count = extractBookmarkCount(item);
     const category = item.categories ? item.categories[0] : null;
 
+    // Changes 計測用に実行
+    db.exec('BEGIN TRANSACTION;');
     stmt.run(link, title, count, category, isoNow);
+    const changes = db.changes;
+    db.exec('COMMIT;');
 
-    if (db.changes > 0) {
+    if (changes > 0) {
       newCount++;
       newTitles.push(title);
     }
@@ -93,7 +106,7 @@ async function processHotentry(db) {
   };
 }
 
-// 5. Allentry 保存処理 & サマリ取得
+// 5. Allentry 保存処理
 async function processAllentry(db) {
   const feedUrl = 'https://b.hatena.ne.jp/entrylist.rss';
   const feed = await parser.parseURL(feedUrl);
@@ -110,11 +123,15 @@ async function processAllentry(db) {
     const link = item.link;
     const title = item.title;
     const count = extractBookmarkCount(item);
-    const pubDate = item.pubDate || null;
+    // RSS 1.0 の dc:date を優先取得、なければ pubDate
+    const pubDate = item.dcDate || item.pubDate || null;
 
+    db.exec('BEGIN TRANSACTION;');
     stmt.run(link, title, count, pubDate, isoNow);
+    const changes = db.changes;
+    db.exec('COMMIT;');
 
-    if (db.changes > 0) {
+    if (changes > 0) {
       newCount++;
       newTitles.push(title);
     }
@@ -128,7 +145,7 @@ async function processAllentry(db) {
   };
 }
 
-// 6. メイン実行処理 ＆ サマリログ出力
+// 6. メイン実行処理
 async function main() {
   console.log(`========================================`);
   console.log(`⏰ Cron Run: ${isoNow}`);
