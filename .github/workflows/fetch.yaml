@@ -3,7 +3,7 @@ name: Fetch Hatena RSS & Update Pages
 on:
   schedule:
     # 20分おきに自動実行 (UTC時間)
-    - cron: '*/20 * * * *'
+    - cron: '*/30 * * * *'
   workflow_dispatch: # 手動実行ボタンを有効化
 
 # ワークフローからの push および GitHub Pages への書き込み権限を付与
