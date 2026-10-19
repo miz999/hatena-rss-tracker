@@ -41,7 +41,7 @@
 
 ## 3. データベース（SQLite）仕様
 
-Node.js 内蔵の `node:sqlite` (`DatabaseSync`) を使用し、年月別に分割された SQLite データベースファイルへ時系列スナップショットを記録します。
+Node.js 内蔵の `node:sqlite` (`DatabaseSync`) を使用し、年月別に分割された SQLite データベースファイルへ記事URLごとの初回取得データを記録します。
 
 ### ディレクトリ構成
 * 保存先: `data/`
@@ -54,27 +54,29 @@ Node.js 内蔵の `node:sqlite` (`DatabaseSync`) を使用し、年月別に分�
 #### 1. `hot_entries` (人気エントリー)
 ```sql
 CREATE TABLE IF NOT EXISTS hot_entries (
-  link TEXT NOT NULL,
+  link TEXT NOT NULL PRIMARY KEY,
   title TEXT NOT NULL,
-  bookmark_count INTEGER NOT NULL,
-  category TEXT,
-  fetched_at TEXT NOT NULL,
-  PRIMARY KEY (link, fetched_at)
+  fetched_at TEXT NOT NULL
 );
 ```
+
+* `link` を主キーとして、記事URLごとに初回取得時のデータだけ保存します。
+* `bookmark_count` と `category` は保存しません。
+* 既存DBは記事URLごとの最古の取得データを残して重複行を削除し、新しいスキーマへ移行します。
 
 #### 2. `all_entries` (新着エントリー)
 
 ```sql
 CREATE TABLE IF NOT EXISTS all_entries (
-  link TEXT NOT NULL,
+  link TEXT NOT NULL PRIMARY KEY,
   title TEXT NOT NULL,
-  bookmark_count INTEGER NOT NULL,
   pub_date TEXT,
-  fetched_at TEXT NOT NULL,
-  PRIMARY KEY (link, fetched_at)
+  fetched_at TEXT NOT NULL
 );
 ```
+
+* `link` を主キーとし、全月のAllentry DBを照合して同じ記事は初回取得時のデータのみ保存します。以後の取得では重複としてスキップします。
+* 既存の全月DBは記事URLごとの最古の取得データを残して重複行を削除し、新しいスキーマへ移行します。
 
 ## 4. データ取得ロジック (`scripts/fetch_rss.js`)
 
@@ -83,13 +85,12 @@ CREATE TABLE IF NOT EXISTS all_entries (
 ### 主な設定と処理仕様
 
 * **カスタムフィールドの取得:**
-  * `hatena:bookmarkcount` ➔ `bookmarkcount`（ブックマーク数）
   * `dc:date` ➔ `dcDate`（更新日時）
-* **時系列ログの記録:**
-  * 取得ごとに現在時刻の ISO8601 文字列（`isoNow`）を生成。
-  * 複合主キー `(link, fetched_at)` により、同一 URL であっても取得実行ごとのスナップショット（ブックマーク数の推移）を保持。
+* **保存方式:**
+  * 初回取得時の現在時刻を ISO8601 文字列（`fetched_at`）として記録。
+  * HotentryとAllentryの両方で記事URLを主キーとして初回データのみ保存します。
 * **トランザクション制御:**
-  * `db.exec('BEGIN TRANSACTION;')` 単位で挿入を行い、`db.changes` の値から実際の新規追加・更新件数を正確にログ出力。
+  * `db.exec('BEGIN TRANSACTION;')` 単位で挿入を行い、`stmt.run()` の戻り値から実際の新規追加件数をログ出力します。
 
 ## 5. GitHub Actions ワークフロー仕様 (`.github/workflows/fetch.yaml`)
 

@@ -7,7 +7,6 @@ import RssParser from 'rss-parser';
 const parser = new RssParser({
   customFields: {
     item: [
-      ['hatena:bookmarkcount', 'bookmarkcount'],
       ['dc:date', 'dcDate']
     ]
   }
@@ -32,49 +31,147 @@ function initHotentryDb(dbPath) {
   const db = new DatabaseSync(dbPath);
   db.exec(`
     CREATE TABLE IF NOT EXISTS hot_entries (
-      link TEXT NOT NULL,
+      link TEXT NOT NULL PRIMARY KEY,
       title TEXT NOT NULL,
-      bookmark_count INTEGER NOT NULL,
-      category TEXT,
-      fetched_at TEXT NOT NULL,
-      PRIMARY KEY (link, fetched_at)
+      fetched_at TEXT NOT NULL
     );
   `);
+
+  const columns = db.prepare('PRAGMA table_info(hot_entries)').all();
+  const linkColumn = columns.find(column => column.name === 'link');
+  if (linkColumn.pk === 1 && !columns.some(column => ['bookmark_count', 'category'].includes(column.name))) {
+    return db;
+  }
+
+  db.exec('BEGIN IMMEDIATE;');
+  try {
+    db.exec(`
+      CREATE TABLE hot_entries_migration (
+        link TEXT NOT NULL PRIMARY KEY,
+        title TEXT NOT NULL,
+        fetched_at TEXT NOT NULL
+      );
+
+      INSERT INTO hot_entries_migration (link, title, fetched_at)
+      SELECT link, title, fetched_at
+      FROM (
+        SELECT *,
+          ROW_NUMBER() OVER (PARTITION BY link ORDER BY fetched_at, rowid) AS row_number
+        FROM hot_entries
+      )
+      WHERE row_number = 1;
+
+      DROP TABLE hot_entries;
+      ALTER TABLE hot_entries_migration RENAME TO hot_entries;
+    `);
+    db.exec('COMMIT;');
+  } catch (error) {
+    db.exec('ROLLBACK;');
+    throw error;
+  }
+
   return db;
 }
 
 function initAllentryDb(dbPath) {
   const db = new DatabaseSync(dbPath);
-  // スナップショットとして時系列保存するため PRIMARY KEY を (link, fetched_at) に変更
   db.exec(`
     CREATE TABLE IF NOT EXISTS all_entries (
-      link TEXT NOT NULL,
+      link TEXT NOT NULL PRIMARY KEY,
       title TEXT NOT NULL,
-      bookmark_count INTEGER NOT NULL,
       pub_date TEXT,
-      fetched_at TEXT NOT NULL,
-      PRIMARY KEY (link, fetched_at)
+      fetched_at TEXT NOT NULL
     );
   `);
+
+  const columns = db.prepare('PRAGMA table_info(all_entries)').all();
+  const linkColumn = columns.find(column => column.name === 'link');
+  if (linkColumn.pk === 1 && !columns.some(column => column.name === 'bookmark_count')) {
+    return db;
+  }
+
+  db.exec('BEGIN IMMEDIATE;');
+  try {
+    db.exec(`
+      CREATE TABLE all_entries_migration (
+        link TEXT NOT NULL PRIMARY KEY,
+        title TEXT NOT NULL,
+        pub_date TEXT,
+        fetched_at TEXT NOT NULL
+      );
+
+      INSERT INTO all_entries_migration (link, title, pub_date, fetched_at)
+      SELECT link, title, pub_date, fetched_at
+      FROM (
+        SELECT *,
+          ROW_NUMBER() OVER (PARTITION BY link ORDER BY fetched_at, rowid) AS row_number
+        FROM all_entries
+      )
+      WHERE row_number = 1;
+
+      DROP TABLE all_entries;
+      ALTER TABLE all_entries_migration RENAME TO all_entries;
+    `);
+    db.exec('COMMIT;');
+  } catch (error) {
+    db.exec('ROLLBACK;');
+    throw error;
+  }
+
   return db;
 }
 
-// 3. ブックマーク数・更新日時の抽出ヘルパー
-function extractBookmarkCount(item) {
-  if (item.bookmarkcount !== undefined) {
-    return parseInt(item.bookmarkcount, 10);
+function initEntryDbs(dataDir, currentDbPath, filePattern, tableName, initDb) {
+  const currentPath = path.resolve(currentDbPath);
+  const dbPaths = fs.readdirSync(dataDir)
+    .filter(file => filePattern.test(file))
+    .map(file => path.resolve(dataDir, file));
+  if (!dbPaths.includes(currentPath)) {
+    dbPaths.push(currentPath);
   }
-  return 0;
+  dbPaths.sort();
+
+  const links = new Set();
+  let currentDb;
+
+  for (const dbPath of dbPaths) {
+    const db = initDb(dbPath);
+    try {
+      const rows = db.prepare(`SELECT link FROM ${tableName} ORDER BY fetched_at, rowid`).all();
+      const deleteDuplicate = db.prepare(`DELETE FROM ${tableName} WHERE link = ?`);
+
+      db.exec('BEGIN IMMEDIATE;');
+      for (const { link } of rows) {
+        if (links.has(link)) {
+          deleteDuplicate.run(link);
+        } else {
+          links.add(link);
+        }
+      }
+      db.exec('COMMIT;');
+
+      if (dbPath === currentPath) {
+        currentDb = db;
+      } else {
+        db.close();
+      }
+    } catch (error) {
+      db.close();
+      throw error;
+    }
+  }
+
+  return { db: currentDb, links };
 }
 
 // 4. Hotentry 保存処理
-async function processHotentry(db) {
+async function processHotentry(db, existingLinks) {
   const feedUrl = 'https://b.hatena.ne.jp/hotentry.rss';
   const feed = await parser.parseURL(feedUrl);
   
   const stmt = db.prepare(`
-    INSERT OR IGNORE INTO hot_entries (link, title, bookmark_count, category, fetched_at)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT OR IGNORE INTO hot_entries (link, title, fetched_at)
+    VALUES (?, ?, ?)
   `);
 
   let newCount = 0;
@@ -83,14 +180,17 @@ async function processHotentry(db) {
   for (const item of feed.items) {
     const link = item.link;
     const title = item.title;
-    const count = extractBookmarkCount(item);
-    const category = item.categories ? item.categories[0] : null;
+
+    if (existingLinks.has(link)) {
+      continue;
+    }
 
     // Changes 計測用に実行
     db.exec('BEGIN TRANSACTION;');
-    const { changes } = stmt.run(link, title, count, category, isoNow);
+    const { changes } = stmt.run(link, title, isoNow);
     db.exec('COMMIT;');
 
+    existingLinks.add(link);
     if (changes > 0) {
       newCount++;
       newTitles.push(title);
@@ -106,13 +206,13 @@ async function processHotentry(db) {
 }
 
 // 5. Allentry 保存処理
-async function processAllentry(db) {
+async function processAllentry(db, existingLinks) {
   const feedUrl = 'https://b.hatena.ne.jp/entrylist.rss';
   const feed = await parser.parseURL(feedUrl);
 
   const stmt = db.prepare(`
-    INSERT OR IGNORE INTO all_entries (link, title, bookmark_count, pub_date, fetched_at)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT OR IGNORE INTO all_entries (link, title, pub_date, fetched_at)
+    VALUES (?, ?, ?, ?)
   `);
 
   let newCount = 0;
@@ -121,14 +221,18 @@ async function processAllentry(db) {
   for (const item of feed.items) {
     const link = item.link;
     const title = item.title;
-    const count = extractBookmarkCount(item);
     // RSS 1.0 の dc:date を優先取得、なければ pubDate
     const pubDate = item.dcDate || item.pubDate || null;
 
+    if (existingLinks.has(link)) {
+      continue;
+    }
+
     db.exec('BEGIN TRANSACTION;');
-    const { changes } = stmt.run(link, title, count, pubDate, isoNow);
+    const { changes } = stmt.run(link, title, pubDate, isoNow);
     db.exec('COMMIT;');
 
+    existingLinks.add(link);
     if (changes > 0) {
       newCount++;
       newTitles.push(title);
@@ -149,17 +253,37 @@ async function main() {
   console.log(`⏰ Cron Run: ${isoNow}`);
   console.log(`========================================`);
 
-  const hotDb = initHotentryDb(hotentryDbPath);
-  const allDb = initAllentryDb(allentryDbPath);
+  let hotDb;
+  let allDb;
 
   try {
-    const hotSummary = await processHotentry(hotDb);
+    const initializedHotentry = initEntryDbs(
+      dataDir,
+      hotentryDbPath,
+      /^hotentry_\d{4}\.db$/,
+      'hot_entries',
+      initHotentryDb
+    );
+    hotDb = initializedHotentry.db;
+    const existingHotentryLinks = initializedHotentry.links;
+
+    const initializedAllentry = initEntryDbs(
+      dataDir,
+      allentryDbPath,
+      /^allentry_\d{6}\.db$/,
+      'all_entries',
+      initAllentryDb
+    );
+    allDb = initializedAllentry.db;
+    const existingAllentryLinks = initializedAllentry.links;
+
+    const hotSummary = await processHotentry(hotDb, existingHotentryLinks);
     console.log(`[Hotentry]  取得: ${hotSummary.total}件 | 新規: ${hotSummary.newCount}件 | 重複スキップ: ${hotSummary.skipped}件`);
     if (hotSummary.newTitles.length > 0) {
       hotSummary.newTitles.forEach(t => console.log(`  🔥 ${t}`));
     }
 
-    const allSummary = await processAllentry(allDb);
+    const allSummary = await processAllentry(allDb, existingAllentryLinks);
     console.log(`[Allentry]  取得: ${allSummary.total}件 | 新規: ${allSummary.newCount}件 | 重複スキップ: ${allSummary.skipped}件`);
     if (allSummary.newTitles.length > 0) {
       allSummary.newTitles.forEach(t => console.log(`  ✨ ${t}`));
@@ -169,8 +293,8 @@ async function main() {
     console.error('❌ Error fetching RSS:', error);
     process.exitCode = 1;
   } finally {
-    hotDb.close();
-    allDb.close();
+    hotDb?.close();
+    allDb?.close();
     console.log(`========================================\n`);
   }
 }
