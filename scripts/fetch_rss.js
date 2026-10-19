@@ -88,8 +88,7 @@ async function processHotentry(db) {
 
     // Changes 計測用に実行
     db.exec('BEGIN TRANSACTION;');
-    stmt.run(link, title, count, category, isoNow);
-    const changes = db.changes;
+    const { changes } = stmt.run(link, title, count, category, isoNow);
     db.exec('COMMIT;');
 
     if (changes > 0) {
@@ -127,8 +126,7 @@ async function processAllentry(db) {
     const pubDate = item.dcDate || item.pubDate || null;
 
     db.exec('BEGIN TRANSACTION;');
-    stmt.run(link, title, count, pubDate, isoNow);
-    const changes = db.changes;
+    const { changes } = stmt.run(link, title, count, pubDate, isoNow);
     db.exec('COMMIT;');
 
     if (changes > 0) {
