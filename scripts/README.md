@@ -6,22 +6,17 @@
 
 ## 1. システム全体概要
 
-GitHub Actions の定時実行（cron）をトリガーとし、クラウド上の仮想マシン（Runner）で RSS データを解析して SQLite に保存、差分を GitHub 側のリポジトリ（`main` ブランチ）へ自動コミット・Push します。
+外部 cron サービスからのイベントをトリガーとして GitHub Actions を起動し、クラウド上の仮想マシン（Runner）で RSS データを解析して SQLite に保存、差分を GitHub 側のリポジトリ（`main` ブランチ）へ自動コミット・Push します。GitHub Actions 自身の `schedule` は実行遅延があるため、定時実行には使用していません。
 
 
 ```text
-[ はてな RSS フィード ]
-         │ (HTTP GET)
+[ 外部 cron サービス ]
+         │ (repository_dispatch: trigger-fetch)
          ▼
 [ GitHub Actions (Runner) ]
-  ├── 1. node scripts/fetch_rss.js
+  ├── node scripts/fetch_rss.js ── HTTP GET ──▶ [ はてな RSS フィード ]
   │      └── RSS取得 ＆ SQLite DB 更新 (`data/*.db`)
-  ├── 2. node scripts/generate_ranking.js
-  │      └── DBからランキング等のHTML生成
-  └── 3. git commit & git push
-         └── 変更を GitHub リポジトリへ保存
-         │
-         ▼
+  └── git commit & git push（変更がある場合） ──▶
 [ GitHub Remote Repository (main) ]
   ├── data/ (SQLite DB群)
   └── docs/ (GitHub Pages等で公開する静的HTML)
@@ -101,24 +96,40 @@ CREATE TABLE IF NOT EXISTS all_entries (
 ### 構成設定
 
 * **トリガー:**
-  * **定時実行:** `schedule`（`cron: '*/20 * * * *'` または任意の空き時間帯）
-  * **手動実行:** `workflow_dispatch: {}`
+  * **定時実行:** 外部 cron サービスが `repository_dispatch` イベント（`event_type: trigger-fetch`）を送信
+  * **手動実行:** GitHub Actions の `workflow_dispatch`
+  * Actions 内の `schedule` は無効化中。定時実行には外部 cron を使用します。
 * **権限 (`permissions`):** `contents: write`（リポジトリへの自動 Push 権限）
 * **実行ステップ:**
   1. **Checkout:** `actions/checkout@v5`
   2. **Node.js セットアップ:** `actions/setup-node@v5` (Node.js 22 LTS 以上指定)
   3. **依存関係インストール:** `npm ci`（`package.json` が存在する場合）
-  4. **スクリプト実行:** `node scripts/fetch_rss.js`
+  4. **スクリプト実行:** `node scripts/fetch_rss.js`（ランキング生成処理は現在無効）
   5. **自動コミット & Push:** 変更差分がある場合のみ `github-actions[bot]` 名義でコミット
 
 ---
 
 ## 6. 運用・注意点
 
-### GitHub Actions の Cron スケジュール特性
+### 外部 cron からの起動
 
-* 無料枠および低アクティビティリポジトリでは、20分おきの `schedule` 指定であっても実行遅延や間引き（1〜2時間程度の空き）が常態化します。
-* 厳密な 20 分間隔のトリガーが必要な場合は、`cron-job.org` などの外部サービスから `workflow_dispatch` API を呼び出す構成を採用します。
+GitHub Actions の `schedule` は、混雑時や低アクティビティのリポジトリで実行が遅延・間引きされることがあります。そのため定時実行は `cron-job.org` などの外部サービスに設定し、GitHub の `repository_dispatch` API を呼び出します。
+
+* **HTTP メソッド:** `POST`
+* **URL:** `https://api.github.com/repos/{owner}/{repo}/dispatches`
+* **ヘッダー:** `Accept: application/vnd.github+json`、`Authorization: Bearer <token>`、`X-GitHub-Api-Version: 2022-11-28`
+* **JSON ボディ:** `{"event_type":"trigger-fetch"}`
+* **認証:** fine-grained personal access token を使う場合は対象リポジトリを選択し、`Contents: Read and write` を付与してください。トークンは外部 cron サービスのシークレットとして登録してください。
+
+トークンを README、ソースコード、コマンドへの直書き、Git の管理対象ファイルに記録しないでください。コミット履歴に残ると、ファイルから削除しただけでは漏えいを解消できません。誤って公開した場合は、トークンを直ちに revoke（失効）して新しいものを発行してください。
+
+ローカルから動作確認する場合は、トークンを環境変数 `GITHUB_TOKEN` に設定したうえで、次のコマンドを実行します。下記は PowerShell 用です。コマンド中にトークンの値は記入しません。
+
+```powershell
+curl.exe -L -X POST "https://api.github.com/repos/miz999/hatena-rss-tracker/dispatches" -H "Accept: application/vnd.github+json" -H "Authorization: Bearer $env:GITHUB_TOKEN" -H "X-GitHub-Api-Version: 2022-11-28" -d '{"event_type":"trigger-fetch"}'
+```
+
+`event_type` はワークフローの `repository_dispatch.types` に指定された `trigger-fetch` と一致させます。GitHub 上から手動で実行する場合は、Actions タブで対象ワークフローを選択し、`Run workflow` を実行してください。外部サービスから `workflow_dispatch` を呼び出す設定ではありません。
 
 ### `.gitignore` と `data/` の扱い
 
