@@ -12,10 +12,19 @@ on:
 # ワークフローからの push および GitHub Pages への書き込み権限を付与
 permissions:
   contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
 
 jobs:
   fetch-and-generate:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       - name: Checkout repository
@@ -31,12 +40,15 @@ jobs:
         run: |
           if [ -f package.json ]; then npm ci; fi
 
+      - name: Test ranking generation
+        run: npm test
+
       - name: Run Fetch RSS & Generate Ranking
         run: |
           node scripts/fetch_rss.js
-          # node scripts/generate_ranking.js
+          node scripts/generate_ranking.js
 
-      - name: Commit and Push changes
+      - name: Commit and Push database updates
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
@@ -47,4 +59,15 @@ jobs:
           else
             echo "No changes to commit."
           fi
-          
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
