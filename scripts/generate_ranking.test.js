@@ -35,6 +35,8 @@ test('uses the previous JST calendar month and an exact rolling 30-day window', 
     ['example.com', 2],
     ['recent.example', 1]
   ]);
+  assert.equal(report.allentry.monthly.entryCount, 4);
+  assert.equal(report.allentry.last30Days.entryCount, 3);
 });
 
 test('uses Hotentry fetched_at rather than pub_date for period filtering', () => {
@@ -87,7 +89,10 @@ test('escapes RSS titles before rendering HTML', () => {
 });
 
 test('renders ranking sections in the requested order', () => {
-  const report = createRankings([], [], now);
+  const report = createRankings([
+    { link: 'https://example.com/a', title: 'Article', pub_date: '2026-09-10T00:00:00Z', fetched_at: '2026-09-10T01:00:00Z' },
+    { link: 'https://example.com/no-date', title: 'No date', pub_date: null, fetched_at: '2026-09-10T01:00:00Z' }
+  ], [], now);
   const html = renderHtml(report);
   const headings = [
     'Allentry 直近30日ランキング',
@@ -99,4 +104,7 @@ test('renders ranking sections in the requested order', () => {
 
   assert.ok(positions.every(position => position >= 0));
   assert.deepEqual(positions, [...positions].sort((a, b) => a - b));
+  assert.ok(html.includes('期間内エントリー総数: 1件'));
+  assert.ok(!html.includes('日時なし'));
+  assert.ok(!html.includes('不正な日時'));
 });

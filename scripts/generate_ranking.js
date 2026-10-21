@@ -96,23 +96,28 @@ function createDatasetRankings(rows, dateField, now) {
     });
   }
 
+  const monthlyEntries = entries.filter(entry => {
+    const dateMs = Date.parse(entry.date);
+    return dateMs >= monthlyStart && dateMs < monthlyEnd;
+  });
+  const last30DaysEntries = entries.filter(entry => {
+    const dateMs = Date.parse(entry.date);
+    return dateMs >= rollingStart && dateMs <= now.getTime();
+  });
+
   return {
     monthly: {
       label: monthlyWindow.label,
       start: monthlyWindow.start,
       endExclusive: monthlyWindow.end,
-      rankings: rankByHost(entries.filter(entry => {
-        const dateMs = Date.parse(entry.date);
-        return dateMs >= monthlyStart && dateMs < monthlyEnd;
-      }))
+      entryCount: monthlyEntries.length,
+      rankings: rankByHost(monthlyEntries)
     },
     last30Days: {
       start: rollingWindow.start,
       endInclusive: rollingWindow.end,
-      rankings: rankByHost(entries.filter(entry => {
-        const dateMs = Date.parse(entry.date);
-        return dateMs >= rollingStart && dateMs <= now.getTime();
-      }))
+      entryCount: last30DaysEntries.length,
+      rankings: rankByHost(last30DaysEntries)
     },
     totals: {
       uniqueUrls: uniqueEntries.size,
@@ -208,7 +213,7 @@ export function renderHtml(report) {
     return `
     <section>
       <h2>${escapeHtml(heading)}</h2>
-      <p class="meta">期間基準: ${dataset.dateBasis} ／ 日時なし: ${rankings.totals.missingDate}件 ／ 不正な日時: ${rankings.totals.invalidDate}件</p>
+      <p class="meta">期間基準: ${dataset.dateBasis} ／ 期間内エントリー総数: ${rankings[period].entryCount}件</p>
       <p class="meta">${escapeHtml(range)}</p>
       ${renderRankingTable(rankings[period].rankings, '対象記事はありません。', dataset.dateLabel)}
     </section>`;
