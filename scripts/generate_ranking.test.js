@@ -86,3 +86,18 @@ test('escapes RSS titles before rendering HTML', () => {
   assert.ok(!html.includes('<script>alert(1)</script>'));
   assert.ok(html.includes('&lt;script&gt;alert(1)&lt;/script&gt;'));
 });
+
+test('renders ranking sections in the requested order', () => {
+  const report = createRankings([], [], now);
+  const html = renderHtml(report);
+  const headings = [
+    'Allentry 直近30日ランキング',
+    'Hotentry 直近30日ランキング',
+    '前月ランキング — Allentry — 2026年09月',
+    '前月ランキング — Hotentry — 2026年09月'
+  ];
+  const positions = headings.map(heading => html.indexOf(heading));
+
+  assert.ok(positions.every(position => position >= 0));
+  assert.deepEqual(positions, [...positions].sort((a, b) => a - b));
+});

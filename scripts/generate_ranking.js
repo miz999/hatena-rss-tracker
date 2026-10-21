@@ -198,18 +198,19 @@ export function renderHtml(report) {
     { key: 'allentry', label: 'Allentry', dateLabel: '公開日時（pub_date）', dateBasis: 'pub_date' },
     { key: 'hotentry', label: 'Hotentry', dateLabel: '初回取得日時（fetched_at）', dateBasis: 'fetched_at' }
   ];
-  const sections = datasets.map(dataset => {
+  const sections = [
+    { dataset: datasets[0], period: 'last30Days', heading: 'Allentry 直近30日ランキング', range: `${last30Start} 〜 ${last30End} JST` },
+    { dataset: datasets[1], period: 'last30Days', heading: 'Hotentry 直近30日ランキング', range: `${last30Start} 〜 ${last30End} JST` },
+    { dataset: datasets[0], period: 'monthly', heading: `前月ランキング — Allentry — ${report.monthly.label}`, range: `${formatJst(report.monthly.start)} 〜 ${formatJst(monthlyEnd)} JST` },
+    { dataset: datasets[1], period: 'monthly', heading: `前月ランキング — Hotentry — ${report.monthly.label}`, range: `${formatJst(report.monthly.start)} 〜 ${formatJst(monthlyEnd)} JST` }
+  ].map(({ dataset, period, heading, range }) => {
     const rankings = report[dataset.key];
     return `
     <section>
-      <h2>${dataset.label}</h2>
-      <p class="meta">期間基準: ${dataset.dateBasis} ／ 公開日時なし: ${rankings.totals.missingDate}件 ／ 不正な日時: ${rankings.totals.invalidDate}件</p>
-      <h3>前月ランキング — ${escapeHtml(report.monthly.label)}</h3>
-      <p class="meta">${escapeHtml(formatJst(report.monthly.start))} 〜 ${escapeHtml(formatJst(monthlyEnd))} JST</p>
-      ${renderRankingTable(rankings.monthly.rankings, '対象記事はありません。', dataset.dateLabel)}
-      <h3>直近30日ランキング</h3>
-      <p class="meta">${escapeHtml(last30Start)} 〜 ${escapeHtml(last30End)} JST</p>
-      ${renderRankingTable(rankings.last30Days.rankings, '対象記事はありません。', dataset.dateLabel)}
+      <h2>${escapeHtml(heading)}</h2>
+      <p class="meta">期間基準: ${dataset.dateBasis} ／ 日時なし: ${rankings.totals.missingDate}件 ／ 不正な日時: ${rankings.totals.invalidDate}件</p>
+      <p class="meta">${escapeHtml(range)}</p>
+      ${renderRankingTable(rankings[period].rankings, '対象記事はありません。', dataset.dateLabel)}
     </section>`;
   }).join('');
   return `<!doctype html>
