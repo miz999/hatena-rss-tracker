@@ -4,16 +4,15 @@ import { createRankings, renderHtml } from './generate_ranking.js';
 
 const now = new Date('2026-10-21T07:00:00+09:00');
 
-test('groups URLs by scheme and host while keeping HTTP and HTTPS separate', () => {
+test('groups HTTP and HTTPS URLs under the same hostname', () => {
   const report = createRankings([
     { link: 'https://note.com/user/n/1', title: 'one', pub_date: '2026-09-10T00:00:00Z', fetched_at: '2026-09-11T00:00:00Z' },
     { link: 'https://note.com/another/n/2', title: 'two', pub_date: '2026-09-11T00:00:00Z', fetched_at: '2026-09-12T00:00:00Z' },
     { link: 'http://note.com/user/n/3', title: 'three', pub_date: '2026-09-12T00:00:00Z', fetched_at: '2026-09-13T00:00:00Z' }
   ], [], now);
 
-  assert.deepEqual(report.allentry.monthly.rankings.map(group => [group.origin, group.count]), [
-    ['https://note.com', 2],
-    ['http://note.com', 1]
+  assert.deepEqual(report.allentry.monthly.rankings.map(group => [group.host, group.count]), [
+    ['note.com', 3]
   ]);
 });
 
@@ -27,14 +26,14 @@ test('uses the previous JST calendar month and an exact rolling 30-day window', 
   ], [], now);
 
   assert.equal(report.monthly.label, '2026年09月');
-  assert.deepEqual(report.allentry.monthly.rankings.map(group => [group.origin, group.count]), [
-    ['https://example.com', 2],
-    ['https://old.example', 1],
-    ['https://recent.example', 1]
+  assert.deepEqual(report.allentry.monthly.rankings.map(group => [group.host, group.count]), [
+    ['example.com', 2],
+    ['old.example', 1],
+    ['recent.example', 1]
   ]);
-  assert.deepEqual(report.allentry.last30Days.rankings.map(group => [group.origin, group.count]), [
-    ['https://example.com', 2],
-    ['https://recent.example', 1]
+  assert.deepEqual(report.allentry.last30Days.rankings.map(group => [group.host, group.count]), [
+    ['example.com', 2],
+    ['recent.example', 1]
   ]);
 });
 
@@ -48,8 +47,8 @@ test('uses Hotentry fetched_at rather than pub_date for period filtering', () =>
 
   assert.equal(report.hotentry.totals.uniqueUrls, 2);
   assert.equal(report.hotentry.totals.missingDate, 0);
-  assert.deepEqual(report.hotentry.monthly.rankings.map(group => [group.origin, group.count]), [
-    ['https://hot.example', 1]
+  assert.deepEqual(report.hotentry.monthly.rankings.map(group => [group.host, group.count]), [
+    ['hot.example', 1]
   ]);
   assert.equal(report.hotentry.monthly.rankings[0].articles[0].title, 'Hotentry');
   assert.equal(report.allentry.monthly.rankings[0].articles[0].title, 'Allentry');

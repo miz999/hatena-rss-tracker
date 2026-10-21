@@ -92,8 +92,8 @@ CREATE TABLE IF NOT EXISTS all_entries (
 
 ### URLグループ
 
-* 記事URLの `scheme://host[:port]`（URLのorigin）をランキングのグループキーとして使います。パス・クエリは集計キーに含めません。
-* 同じ `https://note.com` の記事はパスが違っても同じグループになります。一方、`http://example.com/a` と `https://example.com/b` は別グループです。
+* 記事URLのホスト名（hostname）をランキングのグループキーとして使います。スキーム（http/https）、ポート、パス、クエリは区別しません。
+* `http://example.com/a` と `https://example.com/b` は同じ `example.com` グループになります。
 * これはドメイン単位の初期ルールです。個別ユーザー／サイト単位への分割が必要になったURLは、将来サイト別ルールを追加できます。
 * グループ内の記事一覧はページ上で展開できます。出力はランキングHTMLと機械可読なJSONです。
 

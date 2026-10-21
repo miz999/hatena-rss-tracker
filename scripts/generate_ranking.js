@@ -28,13 +28,13 @@ function getRollingWindow(now) {
   };
 }
 
-function rankByOrigin(entries) {
+function rankByHost(entries) {
   const groups = new Map();
   for (const entry of entries) {
-    const group = groups.get(entry.origin) ?? { origin: entry.origin, count: 0, articles: [] };
+    const group = groups.get(entry.host) ?? { host: entry.host, count: 0, articles: [] };
     group.count++;
     group.articles.push(entry);
-    groups.set(entry.origin, group);
+    groups.set(entry.host, group);
   }
 
   return [...groups.values()]
@@ -42,7 +42,7 @@ function rankByOrigin(entries) {
       ...group,
       articles: group.articles.sort((a, b) => b.date.localeCompare(a.date) || a.link.localeCompare(b.link))
     }))
-    .sort((a, b) => b.count - a.count || a.origin.localeCompare(b.origin))
+    .sort((a, b) => b.count - a.count || a.host.localeCompare(b.host))
     .slice(0, 20);
 }
 
@@ -92,7 +92,7 @@ function createDatasetRankings(rows, dateField, now) {
       title: row.title,
       date: new Date(dateMs).toISOString(),
       fetchedAt: row.fetched_at,
-      origin: url.origin
+      host: url.hostname
     });
   }
 
@@ -101,7 +101,7 @@ function createDatasetRankings(rows, dateField, now) {
       label: monthlyWindow.label,
       start: monthlyWindow.start,
       endExclusive: monthlyWindow.end,
-      rankings: rankByOrigin(entries.filter(entry => {
+      rankings: rankByHost(entries.filter(entry => {
         const dateMs = Date.parse(entry.date);
         return dateMs >= monthlyStart && dateMs < monthlyEnd;
       }))
@@ -109,7 +109,7 @@ function createDatasetRankings(rows, dateField, now) {
     last30Days: {
       start: rollingWindow.start,
       endInclusive: rollingWindow.end,
-      rankings: rankByOrigin(entries.filter(entry => {
+      rankings: rankByHost(entries.filter(entry => {
         const dateMs = Date.parse(entry.date);
         return dateMs >= rollingStart && dateMs <= now.getTime();
       }))
@@ -127,7 +127,7 @@ export function createRankings(allRows, hotRows, now = new Date()) {
   const rollingWindow = getRollingWindow(now);
   return {
     generatedAt: now.toISOString(),
-    aggregation: 'origin (scheme + host + optional port)',
+    aggregation: 'hostname (scheme and port ignored)',
     monthly: {
       label: monthlyWindow.label,
       start: monthlyWindow.start,
@@ -178,7 +178,7 @@ function renderRankingTable(rankings, emptyMessage, dateLabel) {
     return `
       <tr>
         <td>${index + 1}</td>
-        <th scope="row"><a href="${escapeHtml(group.origin)}" target="_blank" rel="noopener noreferrer">${escapeHtml(group.origin)}</a></th>
+        <th scope="row"><code>${escapeHtml(group.host)}</code></th>
         <td>${group.count}</td>
         <td><details><summary>記事一覧</summary><ol>${articles}</ol></details></td>
       </tr>`;
@@ -237,7 +237,7 @@ export function renderHtml(report) {
 <body>
   <header>
     <h1>はてなブックマーク URLランキング</h1>
-    <p>集計単位: scheme + host（http/httpsは別。パスは集約）</p>
+    <p>集計単位: hostname（http/https・ポート・パスは区別せず集約）</p>
     <p class="meta">更新: ${escapeHtml(formatJst(report.generatedAt))} JST ／ 上位20グループを表示</p>
   </header>
   <main>
