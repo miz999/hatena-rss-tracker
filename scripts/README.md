@@ -82,6 +82,10 @@ CREATE TABLE IF NOT EXISTS all_entries (
 
 `node scripts/generate_ranking.js` は全ての `data/allentry_*.db` と `data/hotentry_*.db` を読み、GitHub Pagesへ配置する `site/index.html` と `site/data.json` を生成します。AllentryとHotentryは別々に集計し、それぞれ前月と直近30日のランキングを表示します。集計数は記事URL単位で重複を除いた記事数で、各ランキングは上位20グループまでです。
 
+前月までの完了した各月について、`site/YYYYMM.html` の月別アーカイブも生成します。例えば2026年9月のページは `site/202609.html` です。トップページから過去の月別ページへ移動でき、各アーカイブにはAllentryとHotentryの月間ランキングを保存します。これらのHTMLは静的ページのため、訪問者がページを開くときにSQLiteへ接続しません。Actions実行時はSQLiteを読み直して、全アーカイブを再生成します。
+
+各月のランキングデータは対応する `site/YYYYMM.json` にも出力します。JSONにはAllentry／Hotentryそれぞれの上位20グループと記事情報を含み、直近30日分や期間外のデータは含めません。月別HTMLからJSONへ移動でき、外部利用者も同じJSONを取得できます。
+
 ### 期間
 
 * **Allentry:** `pub_date` を期間判定に使います。

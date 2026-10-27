@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createRankings, renderHtml } from './generate_ranking.js';
+import {
+  createMonthlyArchive,
+  createMonthlyArchiveData,
+  createRankings,
+  getArchiveMonthKeys,
+  renderHtml,
+  renderMonthlyArchiveHtml
+} from './generate_ranking.js';
 
 const now = new Date('2026-10-21T07:00:00+09:00');
 
@@ -107,4 +114,62 @@ test('renders ranking sections in the requested order', () => {
   assert.ok(html.includes('期間内エントリー総数: 1件'));
   assert.ok(!html.includes('日時なし'));
   assert.ok(!html.includes('不正な日時'));
+});
+
+test('creates archive pages only for completed months and links them from the index', () => {
+  const allRows = [
+    { link: 'https://all.example/september', title: 'September article', pub_date: '2026-09-10T00:00:00Z', fetched_at: '2026-09-10T01:00:00Z' },
+    { link: 'https://all.example/october', title: 'October article', pub_date: '2026-10-10T00:00:00Z', fetched_at: '2026-10-10T01:00:00Z' }
+  ];
+  const hotRows = [
+    { link: 'https://hot.example/september', title: 'September hot', pub_date: null, fetched_at: '2026-09-10T01:00:00Z' },
+    { link: 'https://hot.example/october', title: 'October hot', pub_date: null, fetched_at: '2026-10-10T01:00:00Z' }
+  ];
+  const archiveMonths = getArchiveMonthKeys(allRows, hotRows, now);
+  const archive = createMonthlyArchive(allRows, hotRows, '202609', now);
+  const archiveData = createMonthlyArchiveData(archive);
+  const archiveHtml = renderMonthlyArchiveHtml(archive);
+  const indexHtml = renderHtml(createRankings(allRows, hotRows, now), archiveMonths);
+
+  assert.deepEqual(archiveMonths, ['202609']);
+  assert.equal(archive.allentry.monthly.entryCount, 1);
+  assert.equal(archive.hotentry.monthly.entryCount, 1);
+  assert.ok(archiveHtml.includes('September article'));
+  assert.ok(archiveHtml.includes('September hot'));
+  assert.ok(!archiveHtml.includes('October article'));
+  assert.ok(archiveHtml.includes('href="202609.json"'));
+  assert.ok(indexHtml.includes('href="202609.html"'));
+  assert.equal(archiveData.monthly.label, '2026年09月');
+  assert.equal(archiveData.allentry.dateBasis, 'pub_date');
+  assert.equal(archiveData.hotentry.dateBasis, 'fetched_at');
+  assert.equal(archiveData.allentry.entryCount, 1);
+  assert.equal(archiveData.hotentry.entryCount, 1);
+  assert.equal(archiveData.allentry.rankings[0].articles[0].link, 'https://all.example/september');
+  assert.equal(archiveData.hotentry.rankings[0].articles[0].link, 'https://hot.example/september');
+  assert.ok(!Object.hasOwn(archiveData.allentry, 'last30Days'));
+  assert.ok(!Object.hasOwn(archiveData.allentry, 'totals'));
+  assert.throws(() => createMonthlyArchive(allRows, hotRows, '202613', now), /Invalid archive month/);
+  assert.throws(() => createMonthlyArchive(allRows, hotRows, '202610', now), /is not complete/);
+});
+
+test('limits both monthly archive datasets to their top 20 hostname groups', () => {
+  const allRows = Array.from({ length: 22 }, (_, index) => ({
+    link: `https://all-${index}.example/article`,
+    title: `Allentry ${index}`,
+    pub_date: '2026-09-10T00:00:00Z',
+    fetched_at: '2026-09-10T01:00:00Z'
+  }));
+  const hotRows = Array.from({ length: 22 }, (_, index) => ({
+    link: `https://hot-${index}.example/article`,
+    title: `Hotentry ${index}`,
+    pub_date: null,
+    fetched_at: '2026-09-10T01:00:00Z'
+  }));
+  const archive = createMonthlyArchive(allRows, hotRows, '202609', now);
+  const archiveData = createMonthlyArchiveData(archive);
+
+  assert.equal(archiveData.allentry.entryCount, 22);
+  assert.equal(archiveData.hotentry.entryCount, 22);
+  assert.equal(archiveData.allentry.rankings.length, 20);
+  assert.equal(archiveData.hotentry.rankings.length, 20);
 });
