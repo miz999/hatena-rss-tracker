@@ -271,6 +271,56 @@ function renderRankingTable(rankings, emptyMessage, dateLabel) {
   </table></div>`;
 }
 
+function renderDistributionChart(rankings, entryCount, id) {
+  if (entryCount === 0) {
+    return '';
+  }
+
+  const segments = rankings.slice(0, 10).map(group => ({ label: group.host, count: group.count }));
+  const rankedCount = segments.reduce((total, segment) => total + segment.count, 0);
+  if (entryCount > rankedCount) {
+    segments.push({ label: 'その他', count: entryCount - rankedCount });
+  }
+
+  const colors = [
+    '#2563eb', '#dc2626', '#16a34a', '#9333ea', '#ea580c',
+    '#0891b2', '#db2777', '#65a30d', '#4f46e5', '#ca8a04',
+    '#0f766e', '#c026d3', '#b91c1c', '#0284c7', '#4d7c0f',
+    '#7c3aed', '#c2410c', '#0e7490', '#be185d', '#a16207',
+    '#6b7280'
+  ];
+  const center = 120;
+  const radius = 110;
+  let angle = -Math.PI / 2;
+  const slices = segments.map((segment, index) => {
+    const nextAngle = angle + (segment.count / entryCount) * Math.PI * 2;
+    const startX = center + radius * Math.cos(angle);
+    const startY = center + radius * Math.sin(angle);
+    const endX = center + radius * Math.cos(nextAngle);
+    const endY = center + radius * Math.sin(nextAngle);
+    const largeArc = nextAngle - angle > Math.PI ? 1 : 0;
+    const color = colors[index % colors.length];
+    angle = nextAngle;
+    return {
+      svg: segments.length === 1
+        ? `<circle cx="${center}" cy="${center}" r="${radius}" fill="${color}" />`
+        : `<path d="M ${center} ${center} L ${startX} ${startY} A ${radius} ${radius} 0 ${largeArc} 1 ${endX} ${endY} Z" fill="${color}" />`,
+      legend: `<li><span class="chart-swatch" style="--chart-color:${color}" aria-hidden="true"></span><span>${escapeHtml(segment.label)}</span><span>${segment.count}件（${(segment.count / entryCount * 100).toFixed(1)}%）</span></li>`
+    };
+  });
+  const titleId = `chart-title-${id}`;
+  const descriptionId = `chart-description-${id}`;
+
+  return `<figure class="distribution-chart">
+    <svg viewBox="0 0 ${center * 2} ${center * 2}" role="img" aria-labelledby="${titleId} ${descriptionId}">
+      <title id="${titleId}">URLグループ別の記事数</title>
+      <desc id="${descriptionId}">期間内${entryCount}件の記事に占めるURLグループごとの割合です。</desc>
+      ${slices.map(slice => slice.svg).join('')}
+    </svg>
+    <figcaption><span>記事数の内訳</span><ul>${slices.map(slice => slice.legend).join('')}</ul></figcaption>
+  </figure>`;
+}
+
 function renderArchiveNavigation(monthKeys) {
   if (monthKeys.length === 0) {
     return '';
@@ -301,6 +351,7 @@ export function renderHtml(report, archiveMonths = []) {
       <h2>${escapeHtml(heading)}</h2>
       <p class="meta">期間基準: ${dataset.dateBasis} ／ 期間内エントリー総数: ${rankings[period].entryCount}件</p>
       <p class="meta">${escapeHtml(range)}</p>
+      ${renderDistributionChart(rankings[period].rankings, rankings[period].entryCount, `${dataset.key}-${period}`)}
       ${renderRankingTable(rankings[period].rankings, '対象記事はありません。', dataset.dateLabel)}
     </section>`;
   }).join('');
@@ -319,6 +370,14 @@ export function renderHtml(report, archiveMonths = []) {
     table { width: 100%; border-collapse: collapse; }
     th, td { padding: .65rem; border-bottom: 1px solid #8886; text-align: left; vertical-align: top; }
     td:first-child, td:nth-child(3) { white-space: nowrap; }
+    .distribution-chart { display: flex; align-items: center; gap: 1.5rem; margin: 1rem 0; }
+    .distribution-chart svg { width: min(100%, 15rem); height: auto; flex: 0 0 auto; }
+    .distribution-chart figcaption { min-width: 0; }
+    .distribution-chart ul { list-style: none; padding: 0; margin: .5rem 0; }
+    .distribution-chart li { display: flex; align-items: center; gap: .5rem; margin: .25rem 0; }
+    .distribution-chart li span:last-child { opacity: .75; }
+    .chart-swatch { width: .8rem; height: .8rem; flex: 0 0 auto; background: var(--chart-color); }
+    @media (max-width: 600px) { .distribution-chart { align-items: flex-start; flex-direction: column; } }
     details ol { padding-left: 1.5rem; min-width: 20rem; }
     details li { margin: .5rem 0; }
     time { display: block; font-size: .85rem; opacity: .75; }
@@ -354,6 +413,7 @@ export function renderMonthlyArchiveHtml(report) {
     <section>
       <h2>${dataset.label}</h2>
       <p class="meta">期間基準: ${dataset.dateBasis} ／ 期間内エントリー総数: ${rankings.entryCount}件</p>
+      ${renderDistributionChart(rankings.rankings, rankings.entryCount, `${dataset.key}-monthly`)}
       ${renderRankingTable(rankings.rankings, '対象記事はありません。', dataset.dateLabel)}
     </section>`;
   }).join('');
@@ -372,6 +432,14 @@ export function renderMonthlyArchiveHtml(report) {
     table { width: 100%; border-collapse: collapse; }
     th, td { padding: .65rem; border-bottom: 1px solid #8886; text-align: left; vertical-align: top; }
     td:first-child, td:nth-child(3) { white-space: nowrap; }
+    .distribution-chart { display: flex; align-items: center; gap: 1.5rem; margin: 1rem 0; }
+    .distribution-chart svg { width: min(100%, 15rem); height: auto; flex: 0 0 auto; }
+    .distribution-chart figcaption { min-width: 0; }
+    .distribution-chart ul { list-style: none; padding: 0; margin: .5rem 0; }
+    .distribution-chart li { display: flex; align-items: center; gap: .5rem; margin: .25rem 0; }
+    .distribution-chart li span:last-child { opacity: .75; }
+    .chart-swatch { width: .8rem; height: .8rem; flex: 0 0 auto; background: var(--chart-color); }
+    @media (max-width: 600px) { .distribution-chart { align-items: flex-start; flex-direction: column; } }
     details ol { padding-left: 1.5rem; min-width: 20rem; }
     details li { margin: .5rem 0; }
     time, .meta { display: block; font-size: .9rem; opacity: .75; }

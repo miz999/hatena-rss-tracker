@@ -78,11 +78,19 @@ test('keeps only the earliest record per URL and limits each ranking to 20 origi
   });
 
   const report = createRankings(allRows, allRows, now);
+  const html = renderHtml(report);
+  const chart = html.match(/<figure class="distribution-chart">([\s\S]*?)<\/figure>/)[1];
 
   assert.equal(report.allentry.totals.uniqueUrls, 25);
   assert.equal(report.allentry.monthly.rankings.length, 20);
   assert.equal(report.hotentry.monthly.rankings.length, 20);
   assert.equal(report.hotentry.monthly.rankings[0].articles[0].title, 'Article 0');
+  assert.ok(html.includes('記事数の内訳'));
+  assert.ok(chart.includes('<span>その他</span><span>15件（60.0%）</span>'));
+  assert.ok(chart.includes('<span>site-17.example</span>'));
+  assert.ok(!chart.includes('<span>site-2.example</span>'));
+  assert.ok(html.includes('role="img" aria-labelledby="chart-title-allentry-monthly'));
+  assert.ok(html.includes('role="img" aria-labelledby="chart-title-hotentry-monthly'));
 });
 
 test('escapes RSS titles before rendering HTML', () => {
@@ -148,6 +156,7 @@ test('creates archive pages only for completed months and links them from the in
   assert.equal(archiveData.hotentry.rankings[0].articles[0].link, 'https://hot.example/september');
   assert.ok(!Object.hasOwn(archiveData.allentry, 'last30Days'));
   assert.ok(!Object.hasOwn(archiveData.allentry, 'totals'));
+  assert.ok(archiveHtml.includes('role="img" aria-labelledby="chart-title-allentry-monthly'));
   assert.throws(() => createMonthlyArchive(allRows, hotRows, '202613', now), /Invalid archive month/);
   assert.throws(() => createMonthlyArchive(allRows, hotRows, '202610', now), /is not complete/);
 });
